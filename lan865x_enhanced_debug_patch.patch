@@ -1,0 +1,251 @@
+--- a/drivers/net/ethernet/microchip/lan865x.c
++++ b/drivers/net/ethernet/microchip/lan865x.c
+@@ -12,6 +12,8 @@
+ #include <linux/phy.h>
+ #include <linux/oa_tc6.h>
+ #include <linux/of.h>
++#include <linux/debugfs.h>
++#include <linux/proc_fs.h>
+ 
+ #define DRV_NAME		"lan865x"
+ 
+@@ -50,6 +52,13 @@ struct lan865x_priv {
+ 	struct work_struct multicast_work;
+ 	struct net_device *netdev;
+ 	struct spi_device *spi;
++	
++	/* Debug interface for register access */
++	struct dentry *debugfs_dir;
++	struct proc_dir_entry *proc_entry;
++	
++	/* Debug state */
++	u32 last_reg_addr;
++	u32 last_reg_value;
++	bool debug_enabled;
+ };
+ 
+ static int lan865x_set_hw_macaddr(struct net_device *netdev,
+@@ -257,6 +266,122 @@ static const struct net_device_ops lan865x_netdev_ops = {
+ 	.ndo_get_stats64	= lan865x_get_stats64,
+ };
+ 
++/* Enhanced debugfs interface for register access with comprehensive debugging */
++static ssize_t lan865x_debugfs_reg_read(struct file *file, char __user *user_buf,
++					size_t count, loff_t *ppos)
++{
++	struct lan865x_priv *priv = file->private_data;
++	char buf[512];
++	int len;
++	
++	/* Show usage and last operation result */
++	len = snprintf(buf, sizeof(buf),
++		"LAN865x Register Access Interface\n"
++		"=================================\n"
++		"Usage:\n"
++		"  echo 'read 0x10000' > reg_access      - Read register\n"
++		"  echo 'write 0x10000 0x0C' > reg_access - Write register\n"
++		"  echo 'debug on' > reg_access          - Enable debug output\n"
++		"  echo 'debug off' > reg_access         - Disable debug output\n"
++		"\n"
++		"Status:\n"
++		"  Debug: %s\n"
++		"  Last operation: 0x%08x = 0x%08x\n"
++		"  SPI device: %s\n"
++		"  Network interface: %s\n",
++		priv->debug_enabled ? "ON" : "OFF",
++		priv->last_reg_addr,
++		priv->last_reg_value,
++		priv->spi ? dev_name(&priv->spi->dev) : "NULL",
++		priv->netdev ? priv->netdev->name : "NULL");
++	
++	return simple_read_from_buffer(user_buf, count, ppos, buf, len);
++}
++
++static ssize_t lan865x_debugfs_reg_write(struct file *file, 
++					const char __user *user_buf,
++					size_t count, loff_t *ppos)
++{
++	struct lan865x_priv *priv = file->private_data;
++	char buf[128];
++	char cmd[16];
++	u32 address, value;
++	int ret;
++	ktime_t start_time, end_time;
++	s64 duration_us;
++	
++	if (count >= sizeof(buf))
++		return -EINVAL;
++	
++	if (copy_from_user(buf, user_buf, count))
++		return -EFAULT;
++	
++	buf[count] = '\0';
++	
++	/* Remove trailing newline */
++	if (count > 0 && buf[count-1] == '\n')
++		buf[count-1] = '\0';
++	
++	dev_info(&priv->spi->dev, "DEBUG: Received command: '%s'", buf);
++	
++	/* Handle debug control commands */
++	if (strncmp(buf, "debug ", 6) == 0) {
++		if (strstr(buf, "on")) {
++			priv->debug_enabled = true;
++			dev_info(&priv->spi->dev, "DEBUG: Debug output ENABLED");
++		} else if (strstr(buf, "off")) {
++			priv->debug_enabled = false;
++			dev_info(&priv->spi->dev, "DEBUG: Debug output DISABLED");
++		}
++		return count;
++	}
++	
++	/* Parse register access commands */
++	if (sscanf(buf, "%15s 0x%x 0x%x", cmd, &address, &value) == 3) {
++		if (strcmp(cmd, "write") == 0) {
++			if (priv->debug_enabled) {
++				dev_info(&priv->spi->dev, 
++					"DEBUG: Starting WRITE operation: addr=0x%08x, value=0x%08x", 
++					address, value);
++			}
++			
++			start_time = ktime_get();
++			
++			/* Write register via TC6 */
++			ret = oa_tc6_write_register(priv->tc6, address, value);
++			
++			end_time = ktime_get();
++			duration_us = ktime_to_us(ktime_sub(end_time, start_time));
++			
++			if (ret) {
++				dev_err(&priv->spi->dev, 
++					"ERROR: REG WRITE 0x%08x = 0x%08x FAILED (ret=%d, duration=%lld us)", 
++					address, value, ret, duration_us);
++				return ret;
++			}
++			
++			priv->last_reg_addr = address;
++			priv->last_reg_value = value;
++			
++			dev_info(&priv->spi->dev, "REG WRITE 0x%08x = 0x%08x (duration=%lld us)", 
++				address, value, duration_us);
++				
++			if (priv->debug_enabled) {
++				dev_info(&priv->spi->dev, 
++					"DEBUG: WRITE completed successfully in %lld microseconds", 
++					duration_us);
++			}
++		}
++	} else if (sscanf(buf, "%15s 0x%x", cmd, &address) == 2) {
++		if (strcmp(cmd, "read") == 0) {
++			if (priv->debug_enabled) {
++				dev_info(&priv->spi->dev, 
++					"DEBUG: Starting READ operation: addr=0x%08x", address);
++			}
++			
++			start_time = ktime_get();
++			
++			/* Read register via TC6 */
++			ret = oa_tc6_read_register(priv->tc6, address, &value);
++			
++			end_time = ktime_get();
++			duration_us = ktime_to_us(ktime_sub(end_time, start_time));
++			
++			if (ret) {
++				dev_err(&priv->spi->dev, 
++					"ERROR: REG READ 0x%08x FAILED (ret=%d, duration=%lld us)", 
++					address, ret, duration_us);
++				return ret;
++			}
++			
++			priv->last_reg_addr = address;
++			priv->last_reg_value = value;
++			
++			dev_info(&priv->spi->dev, "REG READ 0x%08x = 0x%08x (duration=%lld us)", 
++				address, value, duration_us);
++				
++			if (priv->debug_enabled) {
++				dev_info(&priv->spi->dev, 
++					"DEBUG: READ completed successfully in %lld microseconds", 
++					duration_us);
++			}
++		}
++	} else {
++		dev_warn(&priv->spi->dev, "Invalid command format: '%s'", buf);
++		dev_info(&priv->spi->dev, 
++			"Valid formats: 'read 0xADDR' or 'write 0xADDR 0xVALUE'");
++		return -EINVAL;
++	}
++	
++	return count;
++}
++
++static const struct file_operations lan865x_debugfs_reg_fops = {
++	.owner = THIS_MODULE,
++	.open = simple_open,
++	.read = lan865x_debugfs_reg_read,
++	.write = lan865x_debugfs_reg_write,
++};
++
++static void lan865x_create_debugfs(struct lan865x_priv *priv)
++{
++	/* Create main debugfs directory */
++	priv->debugfs_dir = debugfs_create_dir("lan865x", NULL);
++	if (!priv->debugfs_dir) {
++		dev_warn(&priv->spi->dev, "Failed to create debugfs directory");
++		return;
++	}
++	
++	/* Create register access file */
++	if (!debugfs_create_file("reg_access", 0600, priv->debugfs_dir, priv,
++				&lan865x_debugfs_reg_fops)) {
++		dev_warn(&priv->spi->dev, "Failed to create reg_access debugfs file");
++		debugfs_remove_recursive(priv->debugfs_dir);
++		priv->debugfs_dir = NULL;
++		return;
++	}
++	
++	/* Initialize debug state */
++	priv->debug_enabled = false;
++	priv->last_reg_addr = 0;
++	priv->last_reg_value = 0;
++	
++	dev_info(&priv->spi->dev, "Debugfs interface created at /sys/kernel/debug/lan865x/");
++}
++
++static void lan865x_remove_debugfs(struct lan865x_priv *priv)
++{
++	if (priv->debugfs_dir) {
++		dev_info(&priv->spi->dev, "Removing debugfs interface");
++		debugfs_remove_recursive(priv->debugfs_dir);
++		priv->debugfs_dir = NULL;
++	}
++}
++
+ static int lan865x_probe(struct spi_device *spi)
+ {
+ 	struct net_device *netdev;
+@@ -310,6 +435,12 @@ static int lan865x_probe(struct spi_device *spi)
+ 	if (ret)
+ 		goto err_register_netdev;
+ 
++	/* Create debug interface */
++	lan865x_create_debugfs(priv);
++	
++	dev_info(&spi->dev, "LAN865x probe completed successfully");
++	dev_info(&spi->dev, "Use /sys/kernel/debug/lan865x/reg_access for register access");
++
+ 	return 0;
+ 
+ err_register_netdev:
+@@ -323,6 +454,11 @@ static void lan865x_remove(struct spi_device *spi)
+ {
+ 	struct lan865x_priv *priv = spi_get_drvdata(spi);
+ 
++	dev_info(&spi->dev, "LAN865x remove starting");
++	
++	/* Remove debug interface */
++	lan865x_remove_debugfs(priv);
++	
+ 	unregister_netdev(priv->netdev);
+ 	oa_tc6_exit(priv->tc6);
+ }
