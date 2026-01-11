@@ -1,0 +1,30 @@
+# Linux kernel module build artifacts
+*.o
+*.a
+*.cmd
+*.ko
+*.mod
+*.mod.c
+*.symvers
+*.order
+modules.order
+Module.symvers
+
+# Built-in artifacts
+built-in.a
+
+# Dependency files
+.*.d
+
+# Temporary files
+*~
+*.swp
+*.swo
+
+# IDE files
+.vscode/
+.idea/
+
+# Backup files
+*.bak
+*.orig
