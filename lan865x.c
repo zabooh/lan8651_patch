@@ -9,6 +9,10 @@
 #include <linux/kernel.h>
 #include <linux/phy.h>
 #include <linux/oa_tc6.h>
+#include <linux/debugfs.h>
+#include <linux/proc_fs.h>
+
+#define DEBUGFS_REG_BUF_SIZE		128
 
 #define DRV_NAME			"lan8650"
 
@@ -41,6 +45,13 @@ struct lan865x_priv {
 	struct net_device *netdev;
 	struct spi_device *spi;
 	struct oa_tc6 *tc6;
+	
+	/* Debug state */
+	u32 last_reg_addr;
+	u32 last_reg_value;
+	bool debug_enabled;
+	struct dentry *debugfs_dir;
+	struct dentry *debugfs_regs;
 };
 
 static int lan865x_set_hw_macaddr_low_bytes(struct oa_tc6 *tc6, const u8 *mac)
@@ -328,6 +339,125 @@ static const struct net_device_ops lan865x_netdev_ops = {
 	.ndo_set_mac_address	= lan865x_set_mac_address,
 };
 
+/* Enhanced debugfs interface for register access with comprehensive debugging */
+static ssize_t lan865x_debugfs_reg_read(struct file *file, char __user *user_buf,
+					size_t count, loff_t *ppos)
+{
+	struct lan865x_priv *priv = file->private_data;
+	char buf[512];
+	int len;
+	u32 reg_val;
+	int ret;
+	
+	if (!priv->debug_enabled) {
+		len = snprintf(buf, sizeof(buf), "Debug disabled. Enable via echo 1 > debug_enable\n");
+		goto out;
+	}
+	
+	/* Read some key registers for debugging */
+	ret = oa_tc6_read_register(priv->tc6, LAN865X_REG_MAC_NET_CTL, &reg_val);
+	if (ret) {
+		len = snprintf(buf, sizeof(buf), "Error reading MAC_NET_CTL: %d\n", ret);
+		goto out;
+	}
+	
+	len = snprintf(buf, sizeof(buf),
+		       "=== LAN865x Register Debug Info ===\n"
+		       "MAC_NET_CTL (0x%08x): 0x%08x\n"
+		       "  TX_EN: %s\n"
+		       "  RX_EN: %s\n"
+		       "Last accessed: addr=0x%08x, val=0x%08x\n"
+		       "Debug enabled: %s\n\n"
+		       "Usage: echo 'addr value' > regs  # Write register\n"
+		       "       echo 'addr' > regs        # Read register\n",
+		       LAN865X_REG_MAC_NET_CTL, reg_val,
+		       (reg_val & MAC_NET_CTL_TXEN) ? "ON" : "OFF",
+		       (reg_val & MAC_NET_CTL_RXEN) ? "ON" : "OFF",
+		       priv->last_reg_addr, priv->last_reg_value,
+		       priv->debug_enabled ? "YES" : "NO");
+
+out:
+	return simple_read_from_buffer(user_buf, count, ppos, buf, len);
+}
+
+static ssize_t lan865x_debugfs_reg_write(struct file *file, const char __user *user_buf,
+					 size_t count, loff_t *ppos)
+{
+	struct lan865x_priv *priv = file->private_data;
+	char buf[64];
+	u32 addr, value;
+	int ret, args;
+	
+	if (!priv->debug_enabled) {
+		dev_err(&priv->spi->dev, "Debug access disabled\n");
+		return -EPERM;
+	}
+	
+	if (count >= sizeof(buf))
+		return -EINVAL;
+		
+	if (copy_from_user(buf, user_buf, count))
+		return -EFAULT;
+		
+	buf[count] = '\0';
+	
+	/* Parse input: "addr" for read, "addr value" for write */
+	args = sscanf(buf, "%x %x", &addr, &value);
+	
+	if (args == 1) {
+		/* Read operation */
+		ret = oa_tc6_read_register(priv->tc6, addr, &value);
+		if (ret) {
+			dev_err(&priv->spi->dev, "Failed to read register 0x%08x: %d\n", addr, ret);
+			return ret;
+		}
+		priv->last_reg_addr = addr;
+		priv->last_reg_value = value;
+		dev_info(&priv->spi->dev, "REG_READ: 0x%08x = 0x%08x\n", addr, value);
+	} else if (args == 2) {
+		/* Write operation */
+		ret = oa_tc6_write_register(priv->tc6, addr, value);
+		if (ret) {
+			dev_err(&priv->spi->dev, "Failed to write register 0x%08x: %d\n", addr, ret);
+			return ret;
+		}
+		priv->last_reg_addr = addr;
+		priv->last_reg_value = value;
+		dev_info(&priv->spi->dev, "REG_WRITE: 0x%08x = 0x%08x\n", addr, value);
+	} else {
+		dev_err(&priv->spi->dev, "Invalid format. Use: 'addr [value]'\n");
+		return -EINVAL;
+	}
+	
+	return count;
+}
+
+static const struct file_operations lan865x_debugfs_reg_fops = {
+	.open = simple_open,
+	.read = lan865x_debugfs_reg_read,
+	.write = lan865x_debugfs_reg_write,
+	.llseek = default_llseek,
+};
+
+static void lan865x_debugfs_init(struct lan865x_priv *priv)
+{
+	priv->debugfs_dir = debugfs_create_dir("lan865x", NULL);
+	if (!priv->debugfs_dir)
+		return;
+		
+	priv->debugfs_regs = debugfs_create_file("regs", 0600, priv->debugfs_dir,
+						priv, &lan865x_debugfs_reg_fops);
+						
+	debugfs_create_bool("debug_enable", 0600, priv->debugfs_dir, &priv->debug_enabled);
+	
+	priv->debug_enabled = true;  /* Enable by default */
+}
+
+static void lan865x_debugfs_remove(struct lan865x_priv *priv)
+{
+	debugfs_remove_recursive(priv->debugfs_dir);
+}
+
 static int lan865x_probe(struct spi_device *spi)
 {
 	struct net_device *netdev;
@@ -398,13 +528,19 @@ static int lan865x_probe(struct spi_device *spi)
 	netdev->netdev_ops = &lan865x_netdev_ops;
 	netdev->ethtool_ops = &lan865x_ethtool_ops;
 
+	/* Initialize debugfs interface */
+	lan865x_debugfs_init(priv);
+
 	ret = register_netdev(netdev);
 	if (ret) {
 		dev_err(&spi->dev, "Register netdev failed (ret = %d)", ret);
-		goto oa_tc6_exit;
+		goto debugfs_cleanup;
 	}
 
 	return 0;
+
+debugfs_cleanup:
+	lan865x_debugfs_remove(priv);
 
 oa_tc6_exit:
 	oa_tc6_exit(priv->tc6);
@@ -419,6 +555,7 @@ static void lan865x_remove(struct spi_device *spi)
 
 	cancel_work_sync(&priv->multicast_work);
 	unregister_netdev(priv->netdev);
+	lan865x_debugfs_remove(priv);
 	oa_tc6_exit(priv->tc6);
 	free_netdev(priv->netdev);
 }
