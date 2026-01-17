@@ -2,6 +2,28 @@
 
 Dieses Dokument beschreibt die Verwendung des debugfs Interfaces im LAN865x 10BASE-T1S MAC-PHY Treiber.
 
+## 📋 Inhaltsverzeichnis
+
+- [Funktionsweise des Debug-Mechanismus](#funktionsweise-des-debug-mechanismus)
+- [Übersicht](#übersicht)  
+- [Debugfs-Struktur](#debugfs-struktur)
+- [Systemvoraussetzungen](#systemvoraussetzungen)
+- [Modul-Management](#modul-management)
+- [Kernel-Konfiguration für Module](#kernel-konfiguration-für-module)
+- [Grundlegende Verwendung](#grundlegende-verwendung)
+- [Wichtige Register-Adressen](#wichtige-register-adressen)
+- [Register-Bit-Definitionen](#register-bit-definitionen)
+- [Praktische Beispiele](#praktische-beispiele)
+- [Logging und Monitoring](#logging-und-monitoring)
+- [Repository-Dateien](#repository-dateien)
+- [LAN8651 Register-Access Tools](#lan8651-register-access-tools)
+- [Sicherheitsfeatures](#sicherheitsfeatures)
+- [Fehlerbehebung](#fehlerbehebung)
+- [Entwickler-Hinweise](#entwickler-hinweise)
+- [Warnung](#warnung)
+
+---
+
 ## Funktionsweise des Debug-Mechanismus
 
 ⚡ **Paralleler und unabhängiger Betrieb:**
