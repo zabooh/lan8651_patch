@@ -44,7 +44,105 @@ Das Interface erstellt ein debugfs-Verzeichnis unter `/sys/kernel/debug/lan865x/
 
 - Linux Kernel mit CONFIG_DEBUG_FS aktiviert
 - Root-Berechtigung für debugfs Zugriff
-- Geladener lan865x Treiber
+- **Kernel-Modul-Unterstützung** aktiviert
+- LAN865x Treiber als **ladbares Modul** kompiliert
+
+## Modul-Management
+
+Der LAN865x Treiber ist als Kernel-Modul implementiert für flexible Entwicklung und Testing.
+
+### Automatisches Laden beim Boot
+
+```bash
+# Module werden automatisch beim Systemstart geladen
+/etc/init.d/lan865x-modules start
+```
+
+### Manuelles Modul-Management
+
+```bash
+# Module laden
+modprobe oa_tc6     # OA-TC6 Bibliothek (Abhängigkeit)
+modprobe lan865x    # LAN865x Treiber
+
+# Module status prüfen
+lsmod | grep -E "(oa_tc6|lan865x)"
+/etc/init.d/lan865x-modules status
+
+# Module entladen (für Entwicklung)
+rmmod lan865x
+rmmod oa_tc6
+
+# Schneller Reload für Testing
+/etc/init.d/lan865x-modules reload
+```
+
+### Entwickler-Workflow
+
+```bash
+# 1. Neue Modul-Version kopieren
+cp lan865x.ko /lib/modules/$(uname -r)/kernel/drivers/net/ethernet/microchip/
+
+# 2. Module-Cache aktualisieren  
+depmod -a
+
+# 3. Altes Modul entladen und neues laden
+/etc/init.d/lan865x-modules reload
+
+# 4. Treiber ist sofort aktiv - kein Reboot nötig!
+```
+
+**Vorteile der Modul-Implementierung:**
+- ✅ Schnelle Entwicklungszyklen (kein kompletter Kernel-Rebuild)
+- ✅ Runtime-Loading/-Unloading für Testing
+- ✅ Einfache Aktualisierung ohne Neustart
+- ✅ Debugging-freundlich
+
+## Kernel-Konfiguration für Module
+
+Für die Modul-Entwicklung ist eine spezifische Kernel-Konfiguration erforderlich. Diese wird über das `config_manager.sh` Script verwaltet:
+
+### Erste Einrichtung (nach Git Clone)
+
+```bash
+# Gespeicherte Kernel-Konfiguration anwenden
+./config_manager.sh apply
+
+# Status prüfen
+./config_manager.sh status
+
+# Kernel mit Modul-Support neu kompilieren
+cd /home/martin/AIoT/lan9662/mchp-brsdk-source-2025.12
+make linux-rebuild O=output/mybuild_regacces
+```
+
+### Konfigurationsmanagement
+
+```bash
+# Aktuelle Kernel-Config sichern (nach erfolgreichen Builds)
+./config_manager.sh backup
+
+# Unterschiede zwischen gespeichert und aktuell anzeigen
+./config_manager.sh diff
+
+# Gespeicherte Config wiederherstellen (bei Problemen)
+./config_manager.sh apply
+
+# Konfigurations-Status anzeigen
+./config_manager.sh status
+
+# Backup löschen
+./config_manager.sh clean
+```
+
+### Wichtige Kernel-Einstellungen
+
+Die gespeicherte `kernel.config` enthält:
+- `CONFIG_LAN865X=m` - LAN865x als ladbares Modul
+- `CONFIG_OA_TC6=m` - OA-TC6 Bibliothek als ladbares Modul  
+- `CONFIG_MODULES=y` - Module-Support aktiviert
+- `CONFIG_MODULE_UNLOAD=y` - Module können entladen werden
+- Alle weiteren für LAN865x nötigen Abhängigkeiten
 
 ## Grundlegende Verwendung
 
@@ -208,6 +306,40 @@ Für detailliertes Register-Access-Logging steht eine bedingte Kompilierung zur 
 
 **Performance-Hinweis:** 
 ⚠️ Verbose logging kann bei vielen Register-Zugriffen das System verlangsamen. Nur für Testing/Debugging aktivieren!
+
+## Repository-Dateien
+
+Dieses Repository enthält folgende wichtige Dateien für die LAN865x Modul-Entwicklung:
+
+### **Quellcode und Dokumentation**
+- `lan865x.c` - Haupttreiber-Quellcode mit debugfs Interface
+- `README.md` - Diese Dokumentation
+
+### **Konfigurationsmanagement**
+- `kernel.config` - Gespeicherte Kernel-Konfiguration mit Modul-Support
+- `config_manager.sh` - Script zur Verwaltung der Kernel-Konfiguration
+
+### **Verwendung der Repository-Dateien**
+
+```bash
+# Nach dem Klonen des Repositories:
+git clone https://github.com/zabooh/lan8651_patch.git
+cd lan8651_patch
+
+# 1. Kernel-Konfiguration wiederherstellen
+./config_manager.sh apply
+
+# 2. Kernel mit korrekten Einstellungen kompilieren
+cd /home/martin/AIoT/lan9662/mchp-brsdk-source-2025.12
+make linux-rebuild O=output/mybuild_regacces
+
+# 3. Module sind bereit für Entwicklung und Testing
+```
+
+**Selbst-dokumentierender Workflow:**
+- Alle nötigen Konfigurationen sind im Repository gespeichert
+- Reproduzierbare Builds auf verschiedenen Systemen
+- Keine manuellen Konfigurationsschritte erforderlich
 
 ## Sicherheitsfeatures
 
