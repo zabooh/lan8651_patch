@@ -341,6 +341,102 @@ make linux-rebuild O=output/mybuild_regacces
 - Reproduzierbare Builds auf verschiedenen Systemen
 - Keine manuellen Konfigurationsschritte erforderlich
 
+## LAN8651 Register-Access Tools
+
+Zusätzlich zum debugfs Interface sind umfassende Tools für den direkten Zugriff auf LAN8651 Register verfügbar:
+
+### 📦 Verfügbare Tools (Verzeichnis: `lan8651-regaccess/`)
+
+#### **1. Python Tool - `lan8651_kernelfs.py` (✅ Funktionsfähig)**
+Vollständiges Register-Access-Tool über das debugfs Interface:
+
+```bash
+# Register nach Name lesen
+python3 lan8651_kernelfs.py read OA_STATUS0
+
+# Register nach Adresse lesen  
+python3 lan8651_kernelfs.py read 0x0008
+
+# Register schreiben
+python3 lan8651_kernelfs.py write OA_CONFIG0 0x12345678
+
+# Alle verfügbaren Register auflisten
+python3 lan8651_kernelfs.py list
+
+# Device-Status Übersicht
+python3 lan8651_kernelfs.py status
+
+# Debug-Modus aktivieren
+LAN8651_DEBUG=1 python3 lan8651_kernelfs.py status
+```
+
+**Features:**
+- **Register-Name-Auflösung**: Verwendung von Namen statt Hexadezimal-Adressen
+- **30+ offizielle Register** aus dem Microchip-Datenblatt
+- **Bit-Field-Dekodierung**: Automatische Interpretation von Status/Control-Bits  
+- **Automatische Interface-Erkennung**: Findet LAN8651 Devices automatisch
+- **Umfassendes Debugging**: Detaillierte Debug-Ausgaben
+
+#### **2. C Tool - `lan8651_ethtool.c` (⚠️ Benötigt Treiber-Erweiterung)**
+Ethtool-basiertes Register-Access-Tool:
+
+```bash
+# Kompilierte Binaries für verschiedene Architekturen
+./lan8651_ethtool_arm_debug read 0x0008
+./lan8651_ethtool_x86_debug write 0x0004 0x12345678
+```
+
+**Features:**
+- **Cross-Platform**: ARM und x86 Binaries verfügbar
+- **Ethtool-Integration**: Nutzt Standard-Linux-Ethtool-Interface
+- **Debug-Unterstützung**: Compile-Time Debug-Optionen
+- **Direkte Kernel-Kommunikation**: Über IOCTL ohne Dateisystem-Zugriffe
+
+### 📚 Detaillierte Dokumentation
+
+Das `lan8651-regaccess/` Verzeichnis enthält umfassende Dokumentation:
+
+- **[LAN8651 Tools README](lan8651-regaccess/README.md)** - Vollständige Tool-Dokumentation
+- **[Register Map](lan8651-regaccess/LAN8651_REGISTER_MAP.md)** - Komplette Register-Referenz aus dem Microchip-Datenblatt
+- **[Debug Testing Guide](lan8651-regaccess/DEBUG_TESTING_GUIDE.md)** - Umfassendes Debug-Testing
+- **[Register Update Summary](lan8651-regaccess/REGISTER_UPDATE_SUMMARY.md)** - Änderungsprotokoll
+
+### 🔧 Build & Test Tools
+
+```bash
+# Tools kompilieren
+lan8651-regaccess/build_tools.sh
+
+# Tools testen
+lan8651-regaccess/test_tools.sh
+
+# Debug-Versionen 
+lan8651-regaccess/build_tools_debug.sh
+lan8651-regaccess/test_tools_debug.sh
+```
+
+### 🏗️ Architektur
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   User Tools    │    │ Patched Driver  │    │   Hardware      │
+│                 │    │                 │    │                 │
+│lan8651_kernelfs │◄──►│ lan865x driver  │◄──►│   LAN8651       │
+│lan8651_ethtool* │    │   + debugfs     │    │   (SPI/TC6)     │
+│                 │    │                 │    │                 │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+        │                        │                        │
+        ▼                        ▼                        ▼
+/sys/kernel/debug/lan865x    OA TC6 Framework         SPI Interface
+```
+
+**Integration:**
+- **Python Tool**: Nutzt das bereits implementierte debugfs Interface  
+- **C Tool**: Kann bei Bedarf durch zusätzliche Ethtool-Handler erweitert werden
+- **Beide Tools**: Verwenden offizielle Register-Definitionen aus dem Microchip-Datenblatt
+
+Die Tools bieten eine **vollständige Abstraktionsebene** für LAN8651 Register-Zugriffe und ergänzen perfekt das debugfs Interface für umfassende Hardware-Diagnose und -Entwicklung.
+
 ## Sicherheitsfeatures
 
 - **Zugriffsschutz**: Debug-Zugriff nur wenn `debug_enabled = true`
