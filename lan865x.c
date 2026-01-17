@@ -5,6 +5,9 @@
  * Author: Parthiban Veerasooran <parthiban.veerasooran@microchip.com>
  */
 
+/* Enable verbose debug logging for register access (comment out for production) */
+//#define CONFIG_LAN865X_DEBUG_VERBOSE
+
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/phy.h>
@@ -412,7 +415,9 @@ static ssize_t lan865x_debugfs_reg_write(struct file *file, const char __user *u
 		}
 		priv->last_reg_addr = addr;
 		priv->last_reg_value = value;
+#ifdef CONFIG_LAN865X_DEBUG_VERBOSE
 		dev_info(&priv->spi->dev, "REG_READ: 0x%08x = 0x%08x\n", addr, value);
+#endif
 	} else if (args == 2) {
 		/* Write operation */
 		ret = oa_tc6_write_register(priv->tc6, addr, value);
@@ -422,7 +427,9 @@ static ssize_t lan865x_debugfs_reg_write(struct file *file, const char __user *u
 		}
 		priv->last_reg_addr = addr;
 		priv->last_reg_value = value;
+#ifdef CONFIG_LAN865X_DEBUG_VERBOSE
 		dev_info(&priv->spi->dev, "REG_WRITE: 0x%08x = 0x%08x\n", addr, value);
+#endif
 	} else {
 		dev_err(&priv->spi->dev, "Invalid format. Use: 'addr [value]'\n");
 		return -EINVAL;

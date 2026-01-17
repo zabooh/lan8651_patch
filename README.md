@@ -2,6 +2,33 @@
 
 Dieses Dokument beschreibt die Verwendung des debugfs Interfaces im LAN865x 10BASE-T1S MAC-PHY Treiber.
 
+## Funktionsweise des Debug-Mechanismus
+
+⚡ **Paralleler und unabhängiger Betrieb:**
+
+Der Debug-Mechanismus läuft vollständig parallel zur normalen Treiberfunktion:
+
+- Der **normale Ethernet-Treiber** funktioniert völlig unabhängig - Netzwerk-Traffic, MAC-Konfiguration, Multicast-Handling etc. laufen weiter
+- Das **debugfs Interface** ist ein zusätzlicher, separater Kanal nur für Debugging-Zwecke  
+- **Keine Interferenz**: Debug-Zugriffe beeinträchtigen nicht den normalen Netzwerkbetrieb
+
+🔒 **Zugriffsschutz durch debug_enabled Flag:**
+
+Der Zugriff auf Register ist durch den `debug_enabled` Schalter geschützt:
+
+```bash
+# Debug aktivieren → Register-Zugriffe erlaubt
+echo 1 > /sys/kernel/debug/lan865x/debug_enable
+
+# Debug deaktivieren → Alle Register-Zugriffe blockiert  
+echo 0 > /sys/kernel/debug/lan865x/debug_enable
+```
+
+**Sicherheitsaspekt:**
+- **Produktionsumgebung**: Debug deaktiviert → Keine unauthorized Register-Manipulation
+- **Entwicklung/Testing**: Debug aktiviert → Vollzugriff für Diagnose
+- **Zur Laufzeit umschaltbar**: Flexibel je nach Bedarf
+
 ## Übersicht
 
 Das debugfs Interface bietet eine umfassende Schnittstelle zum Debugging des LAN865x Ethernet-Treibers zur Laufzeit. Es ermöglicht direkten Zugriff auf Hardware-Register und bietet detaillierte Statusinformationen.
@@ -158,6 +185,30 @@ dmesg | tail -20 | grep "REG_READ\|REG_WRITE"
 [  124.567] lan865x: REG_WRITE: 0x00010001 = 0x00000010
 ```
 
+### Verbose Debug Logging
+
+Für detailliertes Register-Access-Logging steht eine bedingte Kompilierung zur Verfügung:
+
+**Aktivierung:**
+```c
+/* Enable verbose debug logging for register access (comment out for production) */
+#define CONFIG_LAN865X_DEBUG_VERBOSE
+```
+
+**Deaktivierung (für Produktion):**
+```c
+/* Enable verbose debug logging for register access (comment out for production) */
+// #define CONFIG_LAN865X_DEBUG_VERBOSE
+```
+
+**Verhalten:**
+- **Aktiviert**: Jeder debugfs Register-Zugriff wird zusätzlich ins Kernel-Log geschrieben
+- **Deaktiviert**: Optimierte Performance, kein verbose logging (empfohlen für Produktion)
+- **Debug-Info**: Bleibt immer über `cat /sys/kernel/debug/lan865x/regs` verfügbar
+
+**Performance-Hinweis:** 
+⚠️ Verbose logging kann bei vielen Register-Zugriffen das System verlangsamen. Nur für Testing/Debugging aktivieren!
+
 ## Sicherheitsfeatures
 
 - **Zugriffsschutz**: Debug-Zugriff nur wenn `debug_enabled = true`
@@ -209,9 +260,3 @@ Die Debug-Funktionalität ist standardmäßig aktiviert (`debug_enabled = true`)
 
 ⚠️ **Vorsicht beim Schreiben von Registern!** Unsachgemäße Register-Werte können die Hardware beschädigen oder zu instabilem Verhalten führen. Verwenden Sie das Interface nur wenn Sie die Hardware-Spezifikation verstehen.
 
-## Support
-
-Bei Problemen oder Fragen wenden Sie sich an:
-- Maintainer: Parthiban Veerasooran <parthiban.veerasooran@microchip.com>
-- Hardware-Dokumentation: Microchip LAN865x Datenblatt
-- Application Note: AN1760 (Microchip)
