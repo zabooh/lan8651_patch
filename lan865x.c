@@ -12,7 +12,6 @@
 #include <linux/debugfs.h>
 #include <linux/proc_fs.h>
 
-#define DEBUGFS_REG_BUF_SIZE		128
 
 #define DRV_NAME			"lan8650"
 
