@@ -1,190 +1,190 @@
 # LAN865x Debugfs Interface
 
-Dieses Dokument beschreibt die Verwendung des debugfs Interfaces im LAN865x 10BASE-T1S MAC-PHY Treiber.
+This document describes the usage of the debugfs interface in the LAN865x 10BASE-T1S MAC-PHY driver.
 
-## 📋 Inhaltsverzeichnis
+## 📋 Table of Contents
 
-- [Funktionsweise des Debug-Mechanismus](#funktionsweise-des-debug-mechanismus)
-- [Übersicht](#übersicht)  
-- [Debugfs-Struktur](#debugfs-struktur)
-- [Systemvoraussetzungen](#systemvoraussetzungen)
-- [Modul-Management](#modul-management)
-- [Kernel-Konfiguration für Module](#kernel-konfiguration-für-module)
-- [Grundlegende Verwendung](#grundlegende-verwendung)
-- [Wichtige Register-Adressen](#wichtige-register-adressen)
-- [Register-Bit-Definitionen](#register-bit-definitionen)
-- [Praktische Beispiele](#praktische-beispiele)
-- [Logging und Monitoring](#logging-und-monitoring)
-- [Repository-Dateien](#repository-dateien)
+- [Debug Mechanism Functionality](#debug-mechanism-functionality)
+- [Overview](#overview)  
+- [Debugfs Structure](#debugfs-structure)
+- [System Requirements](#system-requirements)
+- [Module Management](#module-management)
+- [Kernel Configuration for Modules](#kernel-configuration-for-modules)
+- [Basic Usage](#basic-usage)
+- [Important Register Addresses](#important-register-addresses)
+- [Register Bit Definitions](#register-bit-definitions)
+- [Practical Examples](#practical-examples)
+- [Logging and Monitoring](#logging-and-monitoring)
+- [Repository Files](#repository-files)
 - [LAN8651 Register-Access Tools](#lan8651-register-access-tools)
-- [Sicherheitsfeatures](#sicherheitsfeatures)
-- [Fehlerbehebung](#fehlerbehebung)
-- [Entwickler-Hinweise](#entwickler-hinweise)
-- [Warnung](#warnung)
+- [Security Features](#security-features)
+- [Troubleshooting](#troubleshooting)
+- [Developer Notes](#developer-notes)
+- [Warning](#warning)
 
 ---
 
-## Funktionsweise des Debug-Mechanismus
+## Debug Mechanism Functionality
 
-⚡ **Paralleler und unabhängiger Betrieb:**
+⚡ **Parallel and Independent Operation:**
 
-Der Debug-Mechanismus läuft vollständig parallel zur normalen Treiberfunktion:
+The debug mechanism runs completely parallel to normal driver functionality:
 
-- Der **normale Ethernet-Treiber** funktioniert völlig unabhängig - Netzwerk-Traffic, MAC-Konfiguration, Multicast-Handling etc. laufen weiter
-- Das **debugfs Interface** ist ein zusätzlicher, separater Kanal nur für Debugging-Zwecke  
-- **Keine Interferenz**: Debug-Zugriffe beeinträchtigen nicht den normalen Netzwerkbetrieb
+- The **normal Ethernet driver** functions completely independently - network traffic, MAC configuration, multicast handling etc. continue running
+- The **debugfs interface** is an additional, separate channel only for debugging purposes  
+- **No interference**: Debug accesses do not interfere with normal network operation
 
-🔒 **Zugriffsschutz durch debug_enabled Flag:**
+🔒 **Access Protection via debug_enabled Flag:**
 
-Der Zugriff auf Register ist durch den `debug_enabled` Schalter geschützt:
+Register access is protected by the `debug_enabled` switch:
 
 ```bash
-# Debug aktivieren → Register-Zugriffe erlaubt
+# Enable debug → Register accesses allowed
 echo 1 > /sys/kernel/debug/lan865x/debug_enable
 
-# Debug deaktivieren → Alle Register-Zugriffe blockiert  
+# Disable debug → All register accesses blocked  
 echo 0 > /sys/kernel/debug/lan865x/debug_enable
 ```
 
-**Sicherheitsaspekt:**
-- **Produktionsumgebung**: Debug deaktiviert → Keine unauthorized Register-Manipulation
-- **Entwicklung/Testing**: Debug aktiviert → Vollzugriff für Diagnose
-- **Zur Laufzeit umschaltbar**: Flexibel je nach Bedarf
+**Security aspect:**
+- **Production environment**: Debug disabled → No unauthorized register manipulation
+- **Development/Testing**: Debug enabled → Full access for diagnostics
+- **Runtime switchable**: Flexible according to needs
 
-## Übersicht
+## Overview
 
-Das debugfs Interface bietet eine umfassende Schnittstelle zum Debugging des LAN865x Ethernet-Treibers zur Laufzeit. Es ermöglicht direkten Zugriff auf Hardware-Register und bietet detaillierte Statusinformationen.
+The debugfs interface provides a comprehensive interface for debugging the LAN865x Ethernet driver at runtime. It enables direct access to hardware registers and provides detailed status information.
 
-## Debugfs-Struktur
+## Debugfs Structure
 
-Das Interface erstellt ein debugfs-Verzeichnis unter `/sys/kernel/debug/lan865x/` mit folgenden Dateien:
+The interface creates a debugfs directory under `/sys/kernel/debug/lan865x/` with the following files:
 
-- `regs` - Register Lese-/Schreibzugriff
-- `debug_enable` - Debug-Status ein/ausschalten (boolean)
+- `regs` - Register read/write access
+- `debug_enable` - Debug status enable/disable (boolean)
 
-## Systemvoraussetzungen
+## System Requirements
 
-- Linux Kernel mit CONFIG_DEBUG_FS aktiviert
-- Root-Berechtigung für debugfs Zugriff
-- **Kernel-Modul-Unterstützung** aktiviert
-- LAN865x Treiber als **ladbares Modul** kompiliert
+- Linux kernel with CONFIG_DEBUG_FS enabled
+- Root privileges for debugfs access
+- **Kernel module support** enabled
+- LAN865x driver compiled as **loadable module**
 
-## Modul-Management
+## Module Management
 
-Der LAN865x Treiber ist als Kernel-Modul implementiert für flexible Entwicklung und Testing.
+The LAN865x driver is implemented as a kernel module for flexible development and testing.
 
-### Automatisches Laden beim Boot
+### Automatic Loading at Boot
 
 ```bash
-# Module werden automatisch beim Systemstart geladen
+# Modules are automatically loaded at system startup
 /etc/init.d/lan865x-modules start
 ```
 
-### Manuelles Modul-Management
+### Manual Module Management
 
 ```bash
-# Module laden
-modprobe oa_tc6     # OA-TC6 Bibliothek (Abhängigkeit)
-modprobe lan865x    # LAN865x Treiber
+# Load modules
+modprobe oa_tc6     # OA-TC6 library (dependency)
+modprobe lan865x    # LAN865x driver
 
-# Module status prüfen
+# Check module status
 lsmod | grep -E "(oa_tc6|lan865x)"
 /etc/init.d/lan865x-modules status
 
-# Module entladen (für Entwicklung)
+# Unload modules (for development)
 rmmod lan865x
 rmmod oa_tc6
 
-# Schneller Reload für Testing
+# Quick reload for testing
 /etc/init.d/lan865x-modules reload
 ```
 
-### Entwickler-Workflow
+### Developer Workflow
 
 ```bash
-# 1. Neue Modul-Version kopieren
+# 1. Copy new module version
 cp lan865x.ko /lib/modules/$(uname -r)/kernel/drivers/net/ethernet/microchip/
 
-# 2. Module-Cache aktualisieren  
+# 2. Update module cache  
 depmod -a
 
-# 3. Altes Modul entladen und neues laden
+# 3. Unload old module and load new one
 /etc/init.d/lan865x-modules reload
 
-# 4. Treiber ist sofort aktiv - kein Reboot nötig!
+# 4. Driver is immediately active - no reboot required!
 ```
 
-**Vorteile der Modul-Implementierung:**
-- ✅ Schnelle Entwicklungszyklen (kein kompletter Kernel-Rebuild)
-- ✅ Runtime-Loading/-Unloading für Testing
-- ✅ Einfache Aktualisierung ohne Neustart
-- ✅ Debugging-freundlich
+**Advantages of module implementation:**
+- ✅ Fast development cycles (no complete kernel rebuild)
+- ✅ Runtime loading/unloading for testing
+- ✅ Easy updates without restart
+- ✅ Debug-friendly
 
-## Kernel-Konfiguration für Module
+## Kernel Configuration for Modules
 
-Für die Modul-Entwicklung ist eine spezifische Kernel-Konfiguration erforderlich. Diese wird über das `config_manager.sh` Script verwaltet:
+For module development, a specific kernel configuration is required. This is managed via the `config_manager.sh` script:
 
-### Erste Einrichtung (nach Git Clone)
+### Initial Setup (after Git Clone)
 
 ```bash
-# Gespeicherte Kernel-Konfiguration anwenden
+# Apply saved kernel configuration
 ./config_manager.sh apply
 
-# Status prüfen
+# Check status
 ./config_manager.sh status
 
-# Kernel mit Modul-Support neu kompilieren
+# Recompile kernel with module support
 cd /home/martin/AIoT/lan9662/mchp-brsdk-source-2025.12
 make linux-rebuild O=output/mybuild_regacces
 ```
 
-### Konfigurationsmanagement
+### Configuration Management
 
 ```bash
-# Aktuelle Kernel-Config sichern (nach erfolgreichen Builds)
+# Save current kernel config (after successful builds)
 ./config_manager.sh backup
 
-# Unterschiede zwischen gespeichert und aktuell anzeigen
+# Show differences between saved and current
 ./config_manager.sh diff
 
-# Gespeicherte Config wiederherstellen (bei Problemen)
+# Restore saved config (in case of problems)
 ./config_manager.sh apply
 
-# Konfigurations-Status anzeigen
+# Show configuration status
 ./config_manager.sh status
 
-# Backup löschen
+# Delete backup
 ./config_manager.sh clean
 ```
 
-### Wichtige Kernel-Einstellungen
+### Important Kernel Settings
 
-Die gespeicherte `kernel.config` enthält:
-- `CONFIG_LAN865X=m` - LAN865x als ladbares Modul
-- `CONFIG_OA_TC6=m` - OA-TC6 Bibliothek als ladbares Modul  
-- `CONFIG_MODULES=y` - Module-Support aktiviert
-- `CONFIG_MODULE_UNLOAD=y` - Module können entladen werden
-- Alle weiteren für LAN865x nötigen Abhängigkeiten
+The saved `kernel.config` contains:
+- `CONFIG_LAN865X=m` - LAN865x as loadable module
+- `CONFIG_OA_TC6=m` - OA-TC6 library as loadable module  
+- `CONFIG_MODULES=y` - Module support enabled
+- `CONFIG_MODULE_UNLOAD=y` - Modules can be unloaded
+- All other dependencies required for LAN865x
 
-## Grundlegende Verwendung
+## Basic Usage
 
-### 1. Debug aktivieren/deaktivieren
+### 1. Enable/disable debug
 
 ```bash
-# Debug aktivieren
+# Enable debug
 echo 1 > /sys/kernel/debug/lan865x/debug_enable
 
-# Debug deaktivieren  
+# Disable debug  
 echo 0 > /sys/kernel/debug/lan865x/debug_enable
 ```
 
-### 2. Register-Status anzeigen
+### 2. Show register status
 
 ```bash
 cat /sys/kernel/debug/lan865x/regs
 ```
 
-**Beispiel-Output:**
+**Example Output:**
 ```
 === LAN865x Register Debug Info ===
 MAC_NET_CTL (0x00010000): 0x0000000c
@@ -197,35 +197,35 @@ Usage: echo 'addr value' > regs  # Write register
        echo 'addr' > regs        # Read register
 ```
 
-### 3. Register lesen
+### 3. Read registers
 
 ```bash
-# MAC Network Control Register lesen
+# Read MAC Network Control Register
 echo "00010000" > /sys/kernel/debug/lan865x/regs
 
-# MAC Network Configuration Register lesen
+# Read MAC Network Configuration Register
 echo "00010001" > /sys/kernel/debug/lan865x/regs
 
-# MAC Adresse Low Bytes lesen
+# Read MAC Address Low Bytes
 echo "00010022" > /sys/kernel/debug/lan865x/regs
 ```
 
-### 4. Register schreiben
+### 4. Write registers
 
 ```bash
-# TX und RX aktivieren (Bits 2 und 3 setzen)
+# Enable TX and RX (set bits 2 and 3)
 echo "00010000 0000000c" > /sys/kernel/debug/lan865x/regs
 
-# Promiscuous Mode aktivieren (Bit 4 in NET_CFG setzen)
+# Enable promiscuous mode (set bit 4 in NET_CFG)
 echo "00010001 00000010" > /sys/kernel/debug/lan865x/regs
 
-# Multicast Mode aktivieren (Bit 6 in NET_CFG setzen)
+# Enable multicast mode (set bit 6 in NET_CFG)
 echo "00010001 00000040" > /sys/kernel/debug/lan865x/regs
 ```
 
-## Wichtige Register-Adressen
+## Important Register Addresses
 
-| Register | Adresse | Beschreibung |
+| Register | Address | Description |
 |----------|---------|-------------|
 | MAC_NET_CTL | 0x00010000 | Network Control (TX/RX Enable) |
 | MAC_NET_CFG | 0x00010001 | Network Configuration (Promiscuous/Multicast) |
@@ -235,7 +235,7 @@ echo "00010001 00000040" > /sys/kernel/debug/lan865x/regs
 | MAC_H_SADDR1 | 0x00010023 | MAC Specific Address 1 Top |
 | MAC_TSU_TIMER_INCR | 0x00010077 | MAC TSU Timer Increment |
 
-## Register-Bit-Definitionen
+## Register Bit Definitions
 
 ### MAC_NET_CTL (0x00010000)
 - Bit 3: `MAC_NET_CTL_TXEN` - Transmit Enable
@@ -246,60 +246,60 @@ echo "00010001 00000040" > /sys/kernel/debug/lan865x/regs
 - Bit 6: `MAC_NET_CFG_MULTICAST_MODE` - Multicast Mode
 - Bit 7: `MAC_NET_CFG_UNICAST_MODE` - Unicast Mode
 
-## Praktische Beispiele
+## Practical Examples
 
-### Hardware aktivieren/deaktivieren
+### Enable/disable hardware
 
 ```bash
-# Hardware komplett aktivieren (TX + RX)
+# Enable hardware completely (TX + RX)
 echo "00010000 0000000c" > /sys/kernel/debug/lan865x/regs
 
-# Nur TX aktivieren
+# Enable only TX
 echo "00010000 00000008" > /sys/kernel/debug/lan865x/regs
 
-# Nur RX aktivieren
+# Enable only RX
 echo "00010000 00000004" > /sys/kernel/debug/lan865x/regs
 
-# Hardware deaktivieren
+# Disable hardware
 echo "00010000 00000000" > /sys/kernel/debug/lan865x/regs
 ```
 
-### Netzwerk-Modi konfigurieren
+### Configure network modes
 
 ```bash
-# Promiscuous Mode
+# Promiscuous mode
 echo "00010001 00000010" > /sys/kernel/debug/lan865x/regs
 
-# Multicast Mode
+# Multicast mode
 echo "00010001 00000040" > /sys/kernel/debug/lan865x/regs
 
-# Normal Mode (nur lokale MAC-Adresse)
+# Normal mode (only local MAC address)
 echo "00010001 00000000" > /sys/kernel/debug/lan865x/regs
 ```
 
-### MAC-Adresse auslesen
+### Read MAC address
 
 ```bash
-# MAC Low Bytes lesen
+# Read MAC low bytes
 echo "00010022" > /sys/kernel/debug/lan865x/regs
 
-# MAC High Bytes lesen
+# Read MAC high bytes
 echo "00010023" > /sys/kernel/debug/lan865x/regs
 ```
 
-## Logging und Monitoring
+## Logging and Monitoring
 
-Alle Register-Zugriffe werden im Kernel-Log dokumentiert:
+All register accesses are documented in the kernel log:
 
 ```bash
-# Kernel-Log in Echtzeit verfolgen
+# Follow kernel log in real-time
 dmesg -w | grep lan865x
 
-# Letzte Einträge anzeigen
+# Show last entries
 dmesg | tail -20 | grep "REG_READ\|REG_WRITE"
 ```
 
-**Beispiel Log-Output:**
+**Example Log Output:**
 ```
 [  123.456] lan865x: REG_READ: 0x00010000 = 0x0000000c
 [  124.567] lan865x: REG_WRITE: 0x00010001 = 0x00000010
@@ -307,137 +307,137 @@ dmesg | tail -20 | grep "REG_READ\|REG_WRITE"
 
 ### Verbose Debug Logging
 
-Für detailliertes Register-Access-Logging steht eine bedingte Kompilierung zur Verfügung:
+For detailed register access logging, conditional compilation is available:
 
-**Aktivierung:**
+**Activation:**
 ```c
 /* Enable verbose debug logging for register access (comment out for production) */
 #define CONFIG_LAN865X_DEBUG_VERBOSE
 ```
 
-**Deaktivierung (für Produktion):**
+**Deactivation (for production):**
 ```c
 /* Enable verbose debug logging for register access (comment out for production) */
 // #define CONFIG_LAN865X_DEBUG_VERBOSE
 ```
 
-**Verhalten:**
-- **Aktiviert**: Jeder debugfs Register-Zugriff wird zusätzlich ins Kernel-Log geschrieben
-- **Deaktiviert**: Optimierte Performance, kein verbose logging (empfohlen für Produktion)
-- **Debug-Info**: Bleibt immer über `cat /sys/kernel/debug/lan865x/regs` verfügbar
+**Behavior:**
+- **Enabled**: Each debugfs register access is additionally written to kernel log
+- **Disabled**: Optimized performance, no verbose logging (recommended for production)
+- **Debug info**: Always available via `cat /sys/kernel/debug/lan865x/regs`
 
-**Performance-Hinweis:** 
-⚠️ Verbose logging kann bei vielen Register-Zugriffen das System verlangsamen. Nur für Testing/Debugging aktivieren!
+**Performance Note:** 
+⚠️ Verbose logging can slow down the system with many register accesses. Enable only for testing/debugging!
 
-## Repository-Dateien
+## Repository Files
 
-Dieses Repository enthält folgende wichtige Dateien für die LAN865x Modul-Entwicklung:
+This repository contains the following important files for LAN865x module development:
 
-### **Quellcode und Dokumentation**
-- `lan865x.c` - Haupttreiber-Quellcode mit debugfs Interface
-- `README.md` - Diese Dokumentation
+### **Source Code and Documentation**
+- `lan865x.c` - Main driver source code with debugfs interface
+- `README.md` - This documentation
 
-### **Konfigurationsmanagement**
-- `kernel.config` - Gespeicherte Kernel-Konfiguration mit Modul-Support
-- `config_manager.sh` - Script zur Verwaltung der Kernel-Konfiguration
+### **Configuration Management**
+- `kernel.config` - Saved kernel configuration with module support
+- `config_manager.sh` - Script for managing kernel configuration
 
-### **Verwendung der Repository-Dateien**
+### **Using Repository Files**
 
 ```bash
-# Nach dem Klonen des Repositories:
+# After cloning the repository:
 git clone https://github.com/zabooh/lan8651_patch.git
 cd lan8651_patch
 
-# 1. Kernel-Konfiguration wiederherstellen
+# 1. Restore kernel configuration
 ./config_manager.sh apply
 
-# 2. Kernel mit korrekten Einstellungen kompilieren
+# 2. Compile kernel with correct settings
 cd /home/martin/AIoT/lan9662/mchp-brsdk-source-2025.12
 make linux-rebuild O=output/mybuild_regacces
 
-# 3. Module sind bereit für Entwicklung und Testing
+# 3. Modules are ready for development and testing
 ```
 
-**Selbst-dokumentierender Workflow:**
-- Alle nötigen Konfigurationen sind im Repository gespeichert
-- Reproduzierbare Builds auf verschiedenen Systemen
-- Keine manuellen Konfigurationsschritte erforderlich
+**Self-documenting workflow:**
+- All necessary configurations are saved in the repository
+- Reproducible builds on different systems
+- No manual configuration steps required
 
 ## LAN8651 Register-Access Tools
 
-Zusätzlich zum debugfs Interface sind umfassende Tools für den direkten Zugriff auf LAN8651 Register verfügbar:
+In addition to the debugfs interface, comprehensive tools for direct access to LAN8651 registers are available:
 
-### 📦 Verfügbare Tools (Verzeichnis: `lan8651-regaccess/`)
+### 📦 Available Tools (Directory: `lan8651-regaccess/`)
 
-#### **1. Python Tool - `lan8651_kernelfs.py` (✅ Funktionsfähig)**
-Vollständiges Register-Access-Tool über das debugfs Interface:
+#### **1. Python Tool - `lan8651_kernelfs.py` (✅ Functional)**
+Complete register access tool via the debugfs interface:
 
 ```bash
-# Register nach Name lesen
+# Read register by name
 python3 lan8651_kernelfs.py read OA_STATUS0
 
-# Register nach Adresse lesen  
+# Read register by address  
 python3 lan8651_kernelfs.py read 0x0008
 
-# Register schreiben
+# Write register
 python3 lan8651_kernelfs.py write OA_CONFIG0 0x12345678
 
-# Alle verfügbaren Register auflisten
+# List all available registers
 python3 lan8651_kernelfs.py list
 
-# Device-Status Übersicht
+# Device status overview
 python3 lan8651_kernelfs.py status
 
-# Debug-Modus aktivieren
+# Enable debug mode
 LAN8651_DEBUG=1 python3 lan8651_kernelfs.py status
 ```
 
 **Features:**
-- **Register-Name-Auflösung**: Verwendung von Namen statt Hexadezimal-Adressen
-- **30+ offizielle Register** aus dem Microchip-Datenblatt
-- **Bit-Field-Dekodierung**: Automatische Interpretation von Status/Control-Bits  
-- **Automatische Interface-Erkennung**: Findet LAN8651 Devices automatisch
-- **Umfassendes Debugging**: Detaillierte Debug-Ausgaben
+- **Register name resolution**: Use names instead of hexadecimal addresses
+- **30+ official registers** from the Microchip datasheet
+- **Bit field decoding**: Automatic interpretation of status/control bits  
+- **Automatic interface detection**: Finds LAN8651 devices automatically
+- **Comprehensive debugging**: Detailed debug outputs
 
-#### **2. C Tool - `lan8651_ethtool.c` (⚠️ Benötigt Treiber-Erweiterung)**
-Ethtool-basiertes Register-Access-Tool:
+#### **2. C Tool - `lan8651_ethtool.c` (⚠️ Requires Driver Extension)**
+Ethtool-based register access tool:
 
 ```bash
-# Kompilierte Binaries für verschiedene Architekturen
+# Compiled binaries for different architectures
 ./lan8651_ethtool_arm_debug read 0x0008
 ./lan8651_ethtool_x86_debug write 0x0004 0x12345678
 ```
 
 **Features:**
-- **Cross-Platform**: ARM und x86 Binaries verfügbar
-- **Ethtool-Integration**: Nutzt Standard-Linux-Ethtool-Interface
-- **Debug-Unterstützung**: Compile-Time Debug-Optionen
-- **Direkte Kernel-Kommunikation**: Über IOCTL ohne Dateisystem-Zugriffe
+- **Cross-platform**: ARM and x86 binaries available
+- **Ethtool integration**: Uses standard Linux ethtool interface
+- **Debug support**: Compile-time debug options
+- **Direct kernel communication**: Via IOCTL without filesystem accesses
 
-### 📚 Detaillierte Dokumentation
+### 📚 Detailed Documentation
 
-Das `lan8651-regaccess/` Verzeichnis enthält umfassende Dokumentation:
+The `lan8651-regaccess/` directory contains comprehensive documentation:
 
-- **[LAN8651 Tools README](lan8651-regaccess/README.md)** - Vollständige Tool-Dokumentation
-- **[Register Map](lan8651-regaccess/LAN8651_REGISTER_MAP.md)** - Komplette Register-Referenz aus dem Microchip-Datenblatt
-- **[Debug Testing Guide](lan8651-regaccess/DEBUG_TESTING_GUIDE.md)** - Umfassendes Debug-Testing
-- **[Register Update Summary](lan8651-regaccess/REGISTER_UPDATE_SUMMARY.md)** - Änderungsprotokoll
+- **[LAN8651 Tools README](lan8651-regaccess/README.md)** - Complete tool documentation
+- **[Register Map](lan8651-regaccess/LAN8651_REGISTER_MAP.md)** - Complete register reference from the Microchip datasheet
+- **[Debug Testing Guide](lan8651-regaccess/DEBUG_TESTING_GUIDE.md)** - Comprehensive debug testing
+- **[Register Update Summary](lan8651-regaccess/REGISTER_UPDATE_SUMMARY.md)** - Change log
 
 ### 🔧 Build & Test Tools
 
 ```bash
-# Tools kompilieren
+# Compile tools
 lan8651-regaccess/build_tools.sh
 
-# Tools testen
+# Test tools
 lan8651-regaccess/test_tools.sh
 
-# Debug-Versionen 
+# Debug versions 
 lan8651-regaccess/build_tools_debug.sh
 lan8651-regaccess/test_tools_debug.sh
 ```
 
-### 🏗️ Architektur
+### 🏗️ Architecture
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
@@ -453,60 +453,60 @@ lan8651-regaccess/test_tools_debug.sh
 ```
 
 **Integration:**
-- **Python Tool**: Nutzt das bereits implementierte debugfs Interface  
-- **C Tool**: Kann bei Bedarf durch zusätzliche Ethtool-Handler erweitert werden
-- **Beide Tools**: Verwenden offizielle Register-Definitionen aus dem Microchip-Datenblatt
+- **Python Tool**: Uses the already implemented debugfs interface  
+- **C Tool**: Can be extended with additional ethtool handlers if needed
+- **Both tools**: Use official register definitions from the Microchip datasheet
 
-Die Tools bieten eine **vollständige Abstraktionsebene** für LAN8651 Register-Zugriffe und ergänzen perfekt das debugfs Interface für umfassende Hardware-Diagnose und -Entwicklung.
+The tools provide a **complete abstraction layer** for LAN8651 register accesses and perfectly complement the debugfs interface for comprehensive hardware diagnostics and development.
 
-## Sicherheitsfeatures
+## Security Features
 
-- **Zugriffsschutz**: Debug-Zugriff nur wenn `debug_enabled = true`
-- **Eingabevalidierung**: Automatische Überprüfung der Eingabeformate
-- **Fehlerbehandlung**: Umfassende Fehlerausgabe bei fehlgeschlagenen Operationen
-- **Berechtigung**: Root-Zugriff erforderlich (Dateiberechtigungen: 0600)
+- **Access protection**: Debug access only when `debug_enabled = true`
+- **Input validation**: Automatic verification of input formats
+- **Error handling**: Comprehensive error output for failed operations
+- **Permissions**: Root access required (file permissions: 0600)
 
-## Fehlerbehebung
+## Troubleshooting
 
-### Debug Interface nicht verfügbar
+### Debug interface not available
 ```bash
-# Überprüfen ob debugfs gemountet ist
+# Check if debugfs is mounted
 mount | grep debugfs
 
-# debugfs manuell mounten falls nötig
+# Mount debugfs manually if needed
 mount -t debugfs none /sys/kernel/debug
 ```
 
-### Treiber nicht geladen
+### Driver not loaded
 ```bash
-# Treiber-Status prüfen
+# Check driver status
 lsmod | grep lan865x
 
-# SPI-Geräte anzeigen
+# Show SPI devices
 cat /sys/bus/spi/devices/*/modalias
 ```
 
-### Zugriffsfehler
+### Access errors
 ```bash
-# Berechtigung prüfen
+# Check permissions
 ls -la /sys/kernel/debug/lan865x/
 
-# Als root ausführen
+# Run as root
 sudo bash
 ```
 
-## Entwickler-Hinweise
+## Developer Notes
 
-Das debugfs Interface ist in folgenden Funktionen implementiert:
+The debugfs interface is implemented in the following functions:
 
-- `lan865x_debugfs_init()` - Interface-Initialisierung
-- `lan865x_debugfs_reg_read()` - Register-Lesezugriff
-- `lan865x_debugfs_reg_write()` - Register-Schreibzugriff  
-- `lan865x_debugfs_remove()` - Interface-Cleanup
+- `lan865x_debugfs_init()` - Interface initialization
+- `lan865x_debugfs_reg_read()` - Register read access
+- `lan865x_debugfs_reg_write()` - Register write access  
+- `lan865x_debugfs_remove()` - Interface cleanup
 
-Die Debug-Funktionalität ist standardmäßig aktiviert (`debug_enabled = true`) und kann zur Laufzeit über die `debug_enable` Datei gesteuert werden.
+The debug functionality is enabled by default (`debug_enabled = true`) and can be controlled at runtime via the `debug_enable` file.
 
-## Warnung
+## Warning
 
-⚠️ **Vorsicht beim Schreiben von Registern!** Unsachgemäße Register-Werte können die Hardware beschädigen oder zu instabilem Verhalten führen. Verwenden Sie das Interface nur wenn Sie die Hardware-Spezifikation verstehen.
+⚠️ **Caution when writing registers!** Improper register values can damage the hardware or lead to unstable behavior. Use this interface only if you understand the hardware specification.
 
